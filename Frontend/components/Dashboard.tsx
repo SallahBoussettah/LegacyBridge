@@ -1,12 +1,11 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Card, CardContent, CardHeader } from './common/Card';
 import type { ApiEndpoint } from '../types';
+import apiService from '../services/apiService';
 
-interface DashboardProps {
-  apiEndpoints: ApiEndpoint[];
-}
+interface DashboardProps {}
 
 const apiCallData = [
   { name: 'Mon', calls: 4000 },
@@ -32,10 +31,61 @@ const latencyData = [
 ];
 
 
-export const Dashboard: React.FC<DashboardProps> = ({ apiEndpoints }) => {
+export const Dashboard: React.FC<DashboardProps> = () => {
+  const [apiEndpoints, setApiEndpoints] = useState<ApiEndpoint[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [stats, setStats] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        setIsLoading(true);
+        
+        // Fetch API endpoints
+        const endpointsResponse = await apiService.getApiEndpoints();
+        if (endpointsResponse.success && endpointsResponse.data) {
+          const endpoints: ApiEndpoint[] = endpointsResponse.data.endpoints.map((endpoint: any) => ({
+            id: endpoint.id.toString(),
+            httpMethod: endpoint.httpMethod,
+            path: endpoint.path,
+            description: endpoint.description,
+            parameters: endpoint.parameters || [],
+            querySuggestion: endpoint.querySuggestion,
+            status: endpoint.status
+          }));
+          setApiEndpoints(endpoints);
+        }
+
+        // Fetch stats
+        const statsResponse = await apiService.getEndpointStats();
+        if (statsResponse.success && statsResponse.data) {
+          setStats(statsResponse.data);
+        }
+      } catch (error) {
+        console.error('Error fetching dashboard data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchDashboardData();
+  }, []);
+
   const activeEndpoints = apiEndpoints.filter(ep => ep.status === 'active').length;
   const totalCalls = apiCallData.reduce((acc, cur) => acc + cur.calls, 0);
   
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-3xl font-bold text-slate-800">Dashboard</h2>
+        <div className="text-center py-12">
+          <div className="loading-spinner mx-auto mb-4"></div>
+          <p className="text-slate-600">Loading dashboard data...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <h2 className="text-3xl font-bold text-slate-800">Dashboard</h2>

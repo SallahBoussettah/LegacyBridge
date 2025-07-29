@@ -1,6 +1,7 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { generateApiConfig, testApiEndpoint } from '../services/geminiService';
+import apiService from '../services/apiService';
 import type { ApiEndpoint } from '../types';
 import { Button } from './common/Button';
 import { Card, CardContent, CardHeader } from './common/Card';
@@ -100,24 +101,57 @@ export const ApiGenerator: React.FC<ApiGeneratorProps> = ({ onEndpointCreated })
     setShowTester(true);
   };
 
-  const handleCreateEndpoint = () => {
+  const handleCreateEndpoint = async () => {
     if (generatedConfig) {
-      const newEndpoint: ApiEndpoint = {
-        ...generatedConfig,
-        id: new Date().toISOString(),
-        status: 'active',
-      };
-      onEndpointCreated(newEndpoint);
-      
-      // Show success message
+      setIsLoading(true);
       setError(null);
-      
-      // Reset form
-      setPrompt('');
-      setGeneratedConfig(null);
-      setIsEditing(false);
-      setShowTester(false);
-      setSuggestions([]);
+
+      try {
+        // Create endpoint data for the API
+        const endpointData = {
+          name: `${generatedConfig.httpMethod} ${generatedConfig.path}`,
+          httpMethod: generatedConfig.httpMethod,
+          path: generatedConfig.path,
+          description: generatedConfig.description,
+          parameters: generatedConfig.parameters,
+          querySuggestion: generatedConfig.querySuggestion
+        };
+
+        // Save to backend
+        const response = await apiService.createApiEndpoint(endpointData);
+
+        if (response.success && response.data) {
+          // Create the endpoint object for the parent component
+          const newEndpoint: ApiEndpoint = {
+            id: response.data.endpoint.id.toString(),
+            httpMethod: response.data.endpoint.httpMethod,
+            path: response.data.endpoint.path,
+            description: response.data.endpoint.description,
+            parameters: response.data.endpoint.parameters,
+            querySuggestion: response.data.endpoint.querySuggestion,
+            status: response.data.endpoint.status
+          };
+
+          onEndpointCreated(newEndpoint);
+          
+          // Show success message
+          alert('API endpoint created successfully! You can view it in the API Portal.');
+          
+          // Reset form
+          setPrompt('');
+          setGeneratedConfig(null);
+          setIsEditing(false);
+          setShowTester(false);
+          setSuggestions([]);
+        } else {
+          setError(response.message || 'Failed to create API endpoint');
+        }
+      } catch (error) {
+        console.error('Error creating endpoint:', error);
+        setError('An unexpected error occurred while creating the endpoint');
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 

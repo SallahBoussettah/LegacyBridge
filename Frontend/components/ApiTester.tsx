@@ -3,6 +3,7 @@ import type { ApiEndpoint } from '../types';
 import { Button } from './common/Button';
 import { Card, CardContent, CardHeader } from './common/Card';
 import { PlayIcon, XIcon, CopyIcon, CheckIcon } from './icons';
+import apiService from '../services/apiService';
 
 interface ApiTesterProps {
   config: Omit<ApiEndpoint, 'id' | 'status'>;
@@ -85,14 +86,30 @@ export const ApiTester: React.FC<ApiTesterProps> = ({ config, onClose }) => {
     setTestResult(null);
 
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
-
-      // Generate mock response based on HTTP method
-      const mockResponse = generateMockResponse();
-      
-      setTestResult(mockResponse);
+      // If we have an endpoint ID, use the real backend test
+      if (config.id) {
+        const response = await apiService.testApiEndpoint(config.id, parameters);
+        
+        if (response.success && response.data) {
+          setTestResult({
+            status: response.data.statusCode,
+            statusText: response.data.statusCode === 200 ? 'OK' : 
+                       response.data.statusCode === 201 ? 'Created' :
+                       response.data.statusCode === 204 ? 'No Content' : 'Error',
+            duration: response.data.responseTime,
+            headers: response.data.headers || {},
+            data: response.data.data
+          });
+        } else {
+          setError(response.message || 'Failed to test API endpoint');
+        }
+      } else {
+        // Fallback to mock response for generated configs that aren't saved yet
+        const mockResponse = generateMockResponse();
+        setTestResult(mockResponse);
+      }
     } catch (err) {
+      console.error('API test error:', err);
       setError('Failed to test API endpoint');
     } finally {
       setIsLoading(false);
