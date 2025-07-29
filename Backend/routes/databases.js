@@ -7,7 +7,8 @@ import {
   updateDatabaseConnection,
   deleteDatabaseConnection,
   testDatabaseConnection,
-  getDatabaseSchema
+  getDatabaseSchema,
+  executeQuery
 } from '../controllers/databaseController.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { validate, databaseConnectionSchema } from '../middleware/validation.js';
@@ -39,5 +40,6 @@ router.put('/:id', validate(databaseConnectionSchema), updateDatabaseConnection)
 router.delete('/:id', deleteDatabaseConnection);
 router.post('/:id/test', testDatabaseConnection);
 router.get('/:id/schema', getDatabaseSchema);
+router.post('/:id/query', executeQuery);
 
 export default router;

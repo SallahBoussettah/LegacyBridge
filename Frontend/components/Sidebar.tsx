@@ -1,7 +1,7 @@
 
 import React from 'react';
 import type { View, NavigationItem } from '../types';
-import { DashboardIcon, GeneratorIcon, PortalIcon, BillingIcon, PlannerIcon } from './icons';
+import { DashboardIcon, GeneratorIcon, PortalIcon, DatabaseIcon, BillingIcon, PlannerIcon } from './icons';
 
 interface SidebarProps {
   activeView: View;
@@ -13,6 +13,7 @@ const navigationItems: NavigationItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
   { id: 'generator', label: 'API Generator', icon: <GeneratorIcon /> },
   { id: 'portal', label: 'API Portal', icon: <PortalIcon /> },
+  { id: 'databases', label: 'Databases', icon: <DatabaseIcon /> },
   { id: 'billing', label: 'Billing', icon: <BillingIcon /> },
   { id: 'planner', label: 'Upgrade Planner', icon: <PlannerIcon /> },
 ];

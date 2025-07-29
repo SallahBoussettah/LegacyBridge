@@ -2,6 +2,39 @@ import { DataTypes } from 'sequelize';
 import crypto from 'crypto';
 import sequelize from '../config/database.js';
 
+// Encryption key - in production, this should be stored securely
+const ENCRYPTION_KEY = process.env.DB_ENCRYPTION_KEY || 'your-32-character-secret-key-here-must-be-32-chars';
+const ALGORITHM = 'aes-256-cbc';
+
+// Encryption functions
+const encryptPassword = (password) => {
+  try {
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv(ALGORITHM, Buffer.from(ENCRYPTION_KEY.slice(0, 32)), iv);
+    let encrypted = cipher.update(password, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    return iv.toString('hex') + ':' + encrypted;
+  } catch (error) {
+    console.error('Encryption error:', error);
+    throw new Error('Failed to encrypt password');
+  }
+};
+
+const decryptPassword = (encryptedPassword) => {
+  try {
+    const parts = encryptedPassword.split(':');
+    const iv = Buffer.from(parts[0], 'hex');
+    const encrypted = parts[1];
+    const decipher = crypto.createDecipheriv(ALGORITHM, Buffer.from(ENCRYPTION_KEY.slice(0, 32)), iv);
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (error) {
+    console.error('Decryption error:', error);
+    throw new Error('Failed to decrypt password');
+  }
+};
+
 const DatabaseConnection = sequelize.define('DatabaseConnection', {
   id: {
     type: DataTypes.INTEGER,
@@ -73,48 +106,15 @@ const DatabaseConnection = sequelize.define('DatabaseConnection', {
   timestamps: true,
   createdAt: 'created_at',
   updatedAt: 'updated_at',
-  hooks: {
-    beforeCreate: (connection) => {
-      if (connection.password) {
-        connection.passwordEncrypted = DatabaseConnection.encryptPassword(connection.password);
-        delete connection.password;
-      }
-    },
-    beforeUpdate: (connection) => {
-      if (connection.password) {
-        connection.passwordEncrypted = DatabaseConnection.encryptPassword(connection.password);
-        delete connection.password;
-      }
-    },
-  },
 });
 
-// Encryption key - in production, this should be stored securely
-const ENCRYPTION_KEY = process.env.DB_ENCRYPTION_KEY || 'your-32-character-secret-key-here';
-const ALGORITHM = 'aes-256-cbc';
-
 // Static methods for password encryption/decryption
-DatabaseConnection.encryptPassword = function(password) {
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipher(ALGORITHM, ENCRYPTION_KEY);
-  let encrypted = cipher.update(password, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  return iv.toString('hex') + ':' + encrypted;
-};
-
-DatabaseConnection.decryptPassword = function(encryptedPassword) {
-  const parts = encryptedPassword.split(':');
-  const iv = Buffer.from(parts[0], 'hex');
-  const encrypted = parts[1];
-  const decipher = crypto.createDecipher(ALGORITHM, ENCRYPTION_KEY);
-  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
-};
+DatabaseConnection.encryptPassword = encryptPassword;
+DatabaseConnection.decryptPassword = decryptPassword;
 
 // Instance methods
 DatabaseConnection.prototype.getDecryptedPassword = function() {
-  return DatabaseConnection.decryptPassword(this.passwordEncrypted);
+  return decryptPassword(this.passwordEncrypted);
 };
 
 DatabaseConnection.prototype.testConnection = async function() {

@@ -1,5 +1,5 @@
 
-export type View = 'dashboard' | 'generator' | 'portal' | 'billing' | 'planner';
+export type View = 'dashboard' | 'generator' | 'portal' | 'databases' | 'billing' | 'planner';
 
 export interface NavigationItem {
   id: View;

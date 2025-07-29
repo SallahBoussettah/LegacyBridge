@@ -5,6 +5,7 @@ import { Header } from './components/Header';
 import { Dashboard } from './components/Dashboard';
 import { ApiGenerator } from './components/ApiGenerator';
 import { ApiPortal } from './components/ApiPortal';
+import { DatabaseManager } from './components/DatabaseManager';
 import { Billing } from './components/Billing';
 import { UpgradePlanner } from './components/UpgradePlanner';
 import { AuthPage } from './components/auth/AuthPage';
@@ -30,6 +31,8 @@ const App: React.FC = () => {
         return <ApiGenerator onEndpointCreated={addApiEndpoint} />;
       case 'portal':
         return <ApiPortal />;
+      case 'databases':
+        return <DatabaseManager />;
       case 'billing':
         return <Billing />;
       case 'planner':

@@ -1,4 +1,5 @@
-import { DatabaseConnection } from '../models/index.js';
+import { DatabaseConnection, sequelize } from '../models/index.js';
+import databaseInspector from '../services/databaseInspector.js';
 
 // Get all database connections for the authenticated user
 export const getDatabaseConnections = async (req, res) => {
@@ -64,6 +65,11 @@ export const createDatabaseConnection = async (req, res) => {
     const userId = req.user.id;
     const { name, type, host, port, databaseName, username, password, sslEnabled } = req.body;
 
+    console.log('Creating database connection with data:', {
+      name, type, host, port, databaseName, username, 
+      passwordExists: !!password, sslEnabled
+    });
+
     // Check if connection with same name already exists for this user
     const existingConnection = await DatabaseConnection.findOne({
       where: {
@@ -79,6 +85,12 @@ export const createDatabaseConnection = async (req, res) => {
       });
     }
 
+    console.log('About to create connection...');
+    
+    // Encrypt password before saving
+    const encryptedPassword = DatabaseConnection.encryptPassword(password);
+    console.log('Password encrypted successfully');
+    
     const connection = await DatabaseConnection.create({
       userId,
       name,
@@ -87,9 +99,10 @@ export const createDatabaseConnection = async (req, res) => {
       port,
       databaseName,
       username,
-      password, // Will be encrypted by the model hook
+      passwordEncrypted: encryptedPassword,
       sslEnabled: sslEnabled || false
     });
+    console.log('Connection created successfully');
 
     // Remove sensitive data from response
     const connectionData = connection.toJSON();
@@ -131,7 +144,7 @@ export const updateDatabaseConnection = async (req, res) => {
         where: {
           userId,
           name,
-          id: { [DatabaseConnection.sequelize.Sequelize.Op.ne]: id }
+          id: { [sequelize.Sequelize.Op.ne]: id }
         }
       });
 
@@ -143,18 +156,25 @@ export const updateDatabaseConnection = async (req, res) => {
       }
     }
 
-    // Update connection
-    await connection.update({
+    // Prepare update data
+    const updateData = {
       ...(name && { name }),
       ...(type && { type }),
       ...(host && { host }),
       ...(port && { port }),
       ...(databaseName && { databaseName }),
       ...(username && { username }),
-      ...(password && { password }), // Will be encrypted by the model hook
       ...(sslEnabled !== undefined && { sslEnabled }),
       ...(isActive !== undefined && { isActive })
-    });
+    };
+
+    // Encrypt password if provided
+    if (password) {
+      updateData.passwordEncrypted = DatabaseConnection.encryptPassword(password);
+    }
+
+    // Update connection
+    await connection.update(updateData);
 
     // Remove sensitive data from response
     const connectionData = connection.toJSON();
@@ -207,6 +227,15 @@ export const deleteDatabaseConnection = async (req, res) => {
 // Test a database connection
 export const testDatabaseConnection = async (req, res) => {
   try {
+    console.log('Testing database connection:', req.params.id, 'for user:', req.user?.id);
+    
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
     const userId = req.user.id;
     const { id } = req.params;
 
@@ -219,8 +248,20 @@ export const testDatabaseConnection = async (req, res) => {
       });
     }
 
-    // Test the connection (mock implementation for now)
-    const testResult = await connection.testConnection();
+    // Get decrypted password and test real connection
+    const connectionConfig = {
+      type: connection.type,
+      host: connection.host,
+      port: connection.port,
+      databaseName: connection.databaseName,
+      username: connection.username,
+      password: connection.getDecryptedPassword(),
+      sslEnabled: connection.sslEnabled
+    };
+
+    const testResult = await databaseInspector.testConnection(connectionConfig);
+
+    console.log('Database connection test result:', testResult.success);
 
     res.json({
       success: true,
@@ -229,16 +270,31 @@ export const testDatabaseConnection = async (req, res) => {
     });
   } catch (error) {
     console.error('Test database connection error:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
     res.status(500).json({
       success: false,
-      message: 'Failed to test database connection'
+      message: 'Failed to test database connection',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
-// Get database schema (mock implementation)
+// Get database schema (real implementation)
 export const getDatabaseSchema = async (req, res) => {
   try {
+    console.log('Getting database schema for connection:', req.params.id, 'user:', req.user?.id);
+    
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
     const userId = req.user.id;
     const { id } = req.params;
 
@@ -251,52 +307,130 @@ export const getDatabaseSchema = async (req, res) => {
       });
     }
 
-    // Mock schema data - in real implementation, this would connect to the actual database
-    const mockSchema = {
-      tables: [
-        {
-          name: 'users',
-          columns: [
-            { name: 'id', type: 'integer', primaryKey: true },
-            { name: 'email', type: 'varchar', nullable: false },
-            { name: 'first_name', type: 'varchar', nullable: false },
-            { name: 'last_name', type: 'varchar', nullable: false },
-            { name: 'created_at', type: 'timestamp', nullable: false }
-          ]
-        },
-        {
-          name: 'products',
-          columns: [
-            { name: 'id', type: 'integer', primaryKey: true },
-            { name: 'name', type: 'varchar', nullable: false },
-            { name: 'price', type: 'decimal', nullable: false },
-            { name: 'category', type: 'varchar', nullable: true },
-            { name: 'created_at', type: 'timestamp', nullable: false }
-          ]
-        },
-        {
-          name: 'orders',
-          columns: [
-            { name: 'id', type: 'integer', primaryKey: true },
-            { name: 'user_id', type: 'integer', nullable: false },
-            { name: 'product_id', type: 'integer', nullable: false },
-            { name: 'quantity', type: 'integer', nullable: false },
-            { name: 'total_amount', type: 'decimal', nullable: false },
-            { name: 'created_at', type: 'timestamp', nullable: false }
-          ]
-        }
-      ]
+    // Get decrypted password and discover real schema
+    const connectionConfig = {
+      type: connection.type,
+      host: connection.host,
+      port: connection.port,
+      databaseName: connection.databaseName,
+      username: connection.username,
+      password: connection.getDecryptedPassword(),
+      sslEnabled: connection.sslEnabled
     };
+
+    console.log('Discovering schema for database:', connectionConfig.databaseName);
+
+    const schemaResult = await databaseInspector.discoverSchema(connectionConfig);
+
+    if (!schemaResult.success) {
+      return res.status(500).json({
+        success: false,
+        message: schemaResult.message
+      });
+    }
+
+    console.log('Schema discovery completed. Found', schemaResult.data.tables.length, 'tables');
 
     res.json({
       success: true,
-      data: { schema: mockSchema }
+      data: { schema: schemaResult.data }
     });
   } catch (error) {
     console.error('Get database schema error:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
     res.status(500).json({
       success: false,
-      message: 'Failed to retrieve database schema'
+      message: 'Failed to retrieve database schema',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Execute query against database
+export const executeQuery = async (req, res) => {
+  try {
+    console.log('Executing query on database:', req.params.id, 'for user:', req.user?.id);
+    
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
+    const userId = req.user.id;
+    const { id } = req.params;
+    const { query, parameters = [] } = req.body;
+
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({
+        success: false,
+        message: 'SQL query is required'
+      });
+    }
+
+    // Basic security check - only allow SELECT queries for now
+    const trimmedQuery = query.trim().toLowerCase();
+    if (!trimmedQuery.startsWith('select')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Only SELECT queries are allowed for security reasons'
+      });
+    }
+
+    const connection = await DatabaseConnection.findByUserAndId(userId, id);
+
+    if (!connection) {
+      return res.status(404).json({
+        success: false,
+        message: 'Database connection not found'
+      });
+    }
+
+    // Get decrypted password and execute query
+    const connectionConfig = {
+      type: connection.type,
+      host: connection.host,
+      port: connection.port,
+      databaseName: connection.databaseName,
+      username: connection.username,
+      password: connection.getDecryptedPassword(),
+      sslEnabled: connection.sslEnabled
+    };
+
+    console.log('Executing query:', query.substring(0, 100) + '...');
+
+    const queryResult = await databaseInspector.executeQuery(connectionConfig, query, parameters);
+
+    if (!queryResult.success) {
+      return res.status(400).json({
+        success: false,
+        message: queryResult.message
+      });
+    }
+
+    console.log('Query executed successfully. Returned', queryResult.data.rowCount, 'rows');
+
+    res.json({
+      success: true,
+      message: 'Query executed successfully',
+      data: queryResult.data
+    });
+  } catch (error) {
+    console.error('Execute query error:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
+    res.status(500).json({
+      success: false,
+      message: 'Failed to execute query',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };

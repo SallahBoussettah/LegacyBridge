@@ -161,6 +161,13 @@ class ApiService {
   async getDatabaseSchema(id: string) {
     return this.makeRequest(`/databases/${id}/schema`);
   }
+
+  async executeQuery(id: string, query: string, parameters: any[] = []) {
+    return this.makeRequest(`/databases/${id}/query`, {
+      method: 'POST',
+      body: JSON.stringify({ query, parameters }),
+    });
+  }
 }
 
 export const apiService = new ApiService();
