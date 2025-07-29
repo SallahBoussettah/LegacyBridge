@@ -53,7 +53,7 @@ export const generateApiConfig = async (prompt: string): Promise<Omit<ApiEndpoin
       model: "gemini-2.5-flash",
       contents: `Based on the following request, generate a REST API endpoint configuration. The user is trying to expose functionality from a legacy system. Be thoughtful about RESTful principles and common use cases. Request: "${prompt}"`,
       config: {
-        systemInstruction: "You are an expert API designer specializing in modernizing legacy systems. Your task is to generate a JSON configuration for a new REST API endpoint based on a user's natural language request. The output must strictly follow the provided JSON schema.",
+        systemInstruction: "You are an expert API designer specializing in modernizing legacy systems. Your task is to generate a JSON configuration for a new REST API endpoint based on a user's natural language request. The output must strictly follow the provided JSON schema. Focus on creating practical, well-structured APIs with appropriate parameters and realistic SQL queries.",
         responseMimeType: "application/json",
         responseSchema: apiEndpointSchema,
       },
@@ -73,4 +73,18 @@ export const generateApiConfig = async (prompt: string): Promise<Omit<ApiEndpoin
     }
     throw new Error(errorMessage);
   }
+};
+
+export const testApiEndpoint = async (config: Omit<ApiEndpoint, 'id' | 'status'>, parameters: Record<string, any>) => {
+  // This is a mock function for testing API endpoints
+  // In a real implementation, this would make actual HTTP requests
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve({
+        status: 200,
+        data: { message: 'Mock response', parameters },
+        duration: Math.floor(Math.random() * 500) + 100
+      });
+    }, 1000);
+  });
 };

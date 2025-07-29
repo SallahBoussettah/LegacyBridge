@@ -1,10 +1,12 @@
 
-import React, { useState } from 'react';
-import { generateApiConfig } from '../services/geminiService';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { generateApiConfig, testApiEndpoint } from '../services/geminiService';
 import type { ApiEndpoint } from '../types';
 import { Button } from './common/Button';
 import { Card, CardContent, CardHeader } from './common/Card';
-import { SparklesIcon, InfoIcon } from './icons';
+import { SparklesIcon, InfoIcon, PlayIcon, EditIcon, CopyIcon, CheckIcon } from './icons';
+import { ApiTester } from './ApiTester';
+import { ApiEditor } from './ApiEditor';
 
 interface ApiGeneratorProps {
   onEndpointCreated: (endpoint: ApiEndpoint) => void;
@@ -15,6 +17,12 @@ export const ApiGenerator: React.FC<ApiGeneratorProps> = ({ onEndpointCreated })
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generatedConfig, setGeneratedConfig] = useState<Omit<ApiEndpoint, 'id' | 'status'> | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [showTester, setShowTester] = useState(false);
+  const [generationHistory, setGenerationHistory] = useState<Array<{prompt: string, config: Omit<ApiEndpoint, 'id' | 'status'>, timestamp: Date}>>([]);
+  const [copied, setCopied] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) {
@@ -24,10 +32,22 @@ export const ApiGenerator: React.FC<ApiGeneratorProps> = ({ onEndpointCreated })
     setIsLoading(true);
     setError(null);
     setGeneratedConfig(null);
+    setIsEditing(false);
+    setShowTester(false);
 
     try {
       const config = await generateApiConfig(prompt);
       setGeneratedConfig(config);
+      
+      // Add to history
+      setGenerationHistory(prev => [{
+        prompt,
+        config,
+        timestamp: new Date()
+      }, ...prev.slice(0, 4)]); // Keep last 5 generations
+      
+      // Generate suggestions for improvement
+      generateSuggestions(config);
     } catch (err) {
       if (err instanceof Error) {
         setError(err.message);
@@ -39,6 +59,47 @@ export const ApiGenerator: React.FC<ApiGeneratorProps> = ({ onEndpointCreated })
     }
   };
 
+  const generateSuggestions = useCallback((config: Omit<ApiEndpoint, 'id' | 'status'>) => {
+    const suggestions = [];
+    
+    if (config.parameters.length === 0) {
+      suggestions.push("Consider adding query parameters for filtering or pagination");
+    }
+    
+    if (config.httpMethod === 'GET' && !config.path.includes('{')) {
+      suggestions.push("Consider adding path parameters for specific resource access");
+    }
+    
+    if (config.httpMethod === 'POST' && config.parameters.length < 2) {
+      suggestions.push("POST endpoints typically require multiple parameters for data creation");
+    }
+    
+    setSuggestions(suggestions);
+  }, []);
+
+  const handleCopyConfig = async () => {
+    if (!generatedConfig) return;
+    
+    const configText = JSON.stringify(generatedConfig, null, 2);
+    await navigator.clipboard.writeText(configText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleEditConfig = () => {
+    setIsEditing(true);
+  };
+
+  const handleSaveEdit = (updatedConfig: Omit<ApiEndpoint, 'id' | 'status'>) => {
+    setGeneratedConfig(updatedConfig);
+    setIsEditing(false);
+    generateSuggestions(updatedConfig);
+  };
+
+  const handleTestApi = () => {
+    setShowTester(true);
+  };
+
   const handleCreateEndpoint = () => {
     if (generatedConfig) {
       const newEndpoint: ApiEndpoint = {
@@ -47,118 +108,361 @@ export const ApiGenerator: React.FC<ApiGeneratorProps> = ({ onEndpointCreated })
         status: 'active',
       };
       onEndpointCreated(newEndpoint);
+      
+      // Show success message
+      setError(null);
+      
       // Reset form
       setPrompt('');
       setGeneratedConfig(null);
+      setIsEditing(false);
+      setShowTester(false);
+      setSuggestions([]);
     }
   };
+
+  const handleUseHistoryItem = (historyItem: {prompt: string, config: Omit<ApiEndpoint, 'id' | 'status'>, timestamp: Date}) => {
+    setPrompt(historyItem.prompt);
+    setGeneratedConfig(historyItem.config);
+    setError(null);
+    generateSuggestions(historyItem.config);
+  };
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
+    }
+  }, [prompt]);
   
   const examplePrompts = [
-    "Create a GET endpoint to fetch a customer's order history by their customer ID.",
-    "I need a POST endpoint to add a new product to our inventory system. It should take a product name, SKU, and price.",
-    "Generate a DELETE endpoint for removing a user account using their email address."
+    "Create a GET endpoint to fetch a customer's order history by their customer ID with pagination support.",
+    "I need a POST endpoint to add a new product to our inventory system. It should take a product name, SKU, price, and category.",
+    "Generate a DELETE endpoint for removing a user account using their email address with confirmation.",
+    "Build a PUT endpoint to update customer information including name, email, and address validation.",
+    "Create a GET endpoint to search products by name, category, and price range with sorting options.",
+    "I want a POST endpoint for user authentication that takes email and password and returns a JWT token.",
+    "Generate a GET endpoint to retrieve sales analytics data with date range filtering and grouping options.",
+    "Create a PATCH endpoint to update order status with tracking information and notification triggers."
   ];
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
-      <div className="text-center">
-        <h2 className="text-3xl font-bold text-slate-800">API Generator</h2>
-        <p className="mt-2 text-lg text-slate-600">
-          Describe the functionality you want to expose. Our AI will generate a modern REST API endpoint for you.
+    <div className="space-y-8 max-w-6xl mx-auto">
+      {/* Header Section */}
+      <div className="text-center space-y-4">
+        <div className="inline-flex items-center space-x-2 bg-linear-to-r from-brand-primary to-brand-secondary p-1 rounded-full">
+          <div className="bg-white rounded-full p-2">
+            <SparklesIcon className="h-6 w-6 text-brand-primary" />
+          </div>
+          <span className="text-white font-medium px-4 py-1">AI-Powered API Generator</span>
+        </div>
+        <h2 className="text-4xl font-bold text-gradient">Transform Ideas into APIs</h2>
+        <p className="text-xl text-slate-600 max-w-3xl mx-auto">
+          Describe your API needs in plain English. Our advanced AI will generate production-ready REST endpoints with documentation, validation, and legacy system integration.
         </p>
       </div>
 
-      <Card>
-        <CardContent className="space-y-4">
-          <div>
-            <label htmlFor="api-prompt" className="block text-sm font-medium text-slate-700 mb-1">
-              API Description
-            </label>
-            <textarea
-              id="api-prompt"
-              rows={4}
-              className="w-full p-3 border border-slate-300 rounded-md shadow-sm focus:ring-brand-secondary focus:border-brand-secondary"
-              placeholder="e.g., An endpoint to get user details by their ID from our old customer database."
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              disabled={isLoading}
-            />
-             <div className="mt-2 text-xs text-slate-500">
-                <p>Try one of these examples:</p>
-                <ul className="list-disc list-inside">
-                    {examplePrompts.map((p, i) => (
-                        <li key={i}><button onClick={() => setPrompt(p)} className="text-brand-secondary hover:underline">{p}</button></li>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Main Input Section */}
+        <div className="lg:col-span-2 space-y-6">
+          <Card className="shadow-brand">
+            <CardContent className="space-y-6">
+              <div>
+                <label htmlFor="api-prompt" className="block text-sm font-semibold text-slate-700 mb-3">
+                  Describe Your API Requirements
+                </label>
+                <div className="relative">
+                  <textarea
+                    ref={textareaRef}
+                    id="api-prompt"
+                    rows={4}
+                    className="input-field resize-none min-h-[120px] pr-12"
+                    placeholder="e.g., I need an endpoint to retrieve customer order history with pagination, filtering by date range, and sorting options..."
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    disabled={isLoading}
+                  />
+                  {prompt && (
+                    <button
+                      onClick={() => setPrompt('')}
+                      className="absolute top-3 right-3 text-slate-400 hover:text-slate-600 transition-colors"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+                
+                {/* Example Prompts */}
+                <div className="mt-4">
+                  <p className="text-sm font-medium text-slate-600 mb-2">Quick Examples:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {examplePrompts.slice(0, 4).map((example, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setPrompt(example)}
+                        className="text-xs bg-slate-100 hover:bg-brand-light text-slate-700 hover:text-brand-primary px-3 py-1 rounded-full transition-colors duration-200"
+                        disabled={isLoading}
+                      >
+                        {example.slice(0, 50)}...
+                      </button>
                     ))}
-                </ul>
-             </div>
-          </div>
-          <div className="text-right">
-            <Button onClick={handleGenerate} disabled={isLoading} leftIcon={<SparklesIcon />}>
-              {isLoading ? 'Generating...' : 'Generate with AI'}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-      
-      {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-md relative" role="alert">
-          <strong className="font-bold">Error: </strong>
-          <span className="block sm:inline">{error}</span>
-        </div>
-      )}
+                  </div>
+                </div>
+              </div>
 
-      {generatedConfig && (
-        <Card>
-          <CardHeader>
-            <h3 className="text-xl font-semibold text-slate-800">Generated API Configuration</h3>
-            <p className="text-sm text-slate-500">Review the generated configuration below before creating the endpoint.</p>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="p-4 bg-slate-50 rounded-md">
-              <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${generatedConfig.httpMethod === 'GET' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>{generatedConfig.httpMethod}</span>
-              <code className="ml-3 text-lg font-mono text-slate-800">{generatedConfig.path}</code>
-            </div>
-            <div>
-              <h4 className="font-semibold">Description:</h4>
-              <p className="text-slate-600">{generatedConfig.description}</p>
-            </div>
-            
-            <div>
-                <h4 className="font-semibold">Parameters:</h4>
-                {generatedConfig.parameters.length > 0 ? (
-                    <ul className="list-disc list-inside mt-1 space-y-1 text-slate-600">
-                        {generatedConfig.parameters.map((p, i) => <li key={i}><code>{p.name}</code> ({p.type}): {p.description}</li>)}
-                    </ul>
-                ) : <p className="text-slate-500">No parameters defined.</p>}
-            </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2 text-sm text-slate-500">
+                  <InfoIcon className="h-4 w-4" />
+                  <span>Be specific about parameters, validation, and business logic</span>
+                </div>
+                <Button 
+                  onClick={handleGenerate} 
+                  disabled={isLoading || !prompt.trim()} 
+                  leftIcon={isLoading ? <div className="loading-spinner" /> : <SparklesIcon />}
+                  className="shadow-brand"
+                >
+                  {isLoading ? 'Generating...' : 'Generate API'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
 
-            <div>
-              <h4 className="font-semibold">Legacy System Query Suggestion:</h4>
-              <div className="mt-1 p-3 bg-slate-900 text-white rounded-md font-mono text-sm overflow-x-auto">
-                <pre><code>{generatedConfig.querySuggestion}</code></pre>
+          {/* Error Display */}
+          {error && (
+            <div className="animate-slide-up bg-red-50 border-l-4 border-red-400 p-4 rounded-r-lg">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-red-800">Generation Error</h3>
+                  <p className="text-sm text-red-700 mt-1">{error}</p>
+                </div>
               </div>
             </div>
+          )}
 
-            <div className="flex justify-end pt-4 border-t border-slate-200">
-              <Button onClick={handleCreateEndpoint}>
-                Create Endpoint
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+          {/* Generated Configuration */}
+          {generatedConfig && !isEditing && (
+            <Card className="animate-slide-up shadow-brand">
+              <CardHeader className="bg-linear-to-r from-green-50 to-blue-50">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-800">Generated API Configuration</h3>
+                    <p className="text-sm text-slate-600 mt-1">AI-generated REST endpoint ready for deployment</p>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Button variant="secondary" size="sm" onClick={handleCopyConfig} leftIcon={copied ? <CheckIcon /> : <CopyIcon />}>
+                      {copied ? 'Copied!' : 'Copy'}
+                    </Button>
+                    <Button variant="secondary" size="sm" onClick={handleEditConfig} leftIcon={<EditIcon />}>
+                      Edit
+                    </Button>
+                    <Button variant="secondary" size="sm" onClick={handleTestApi} leftIcon={<PlayIcon />}>
+                      Test
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Endpoint Display */}
+                <div className="p-4 bg-linear-to-r from-slate-50 to-slate-100 rounded-lg border">
+                  <div className="flex items-center space-x-3">
+                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-bold ${
+                      generatedConfig.httpMethod === 'GET' ? 'bg-green-100 text-green-800' :
+                      generatedConfig.httpMethod === 'POST' ? 'bg-blue-100 text-blue-800' :
+                      generatedConfig.httpMethod === 'PUT' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-red-100 text-red-800'
+                    }`}>
+                      {generatedConfig.httpMethod}
+                    </span>
+                    <code className="text-lg font-mono text-slate-800 bg-white px-3 py-1 rounded border">
+                      {generatedConfig.path}
+                    </code>
+                  </div>
+                </div>
 
-       {!isLoading && !generatedConfig && (
-        <div className="bg-blue-50 border-l-4 border-brand-accent text-brand-primary p-4" role="alert">
-          <div className="flex">
-            <div className="py-1"><InfoIcon className="h-5 w-5 text-brand-primary mr-3"/></div>
-            <div>
-              <p className="font-bold">How it works</p>
-              <p className="text-sm text-slate-700">LegacyBridge uses a powerful AI model to interpret your needs and suggest a well-structured API. It helps standardize your legacy data access, provides clear documentation, and even suggests how to query your old systems.</p>
-            </div>
-          </div>
+                {/* Description */}
+                <div>
+                  <h4 className="font-semibold text-slate-800 mb-2">Description</h4>
+                  <p className="text-slate-600 bg-slate-50 p-3 rounded-lg">{generatedConfig.description}</p>
+                </div>
+
+                {/* Parameters */}
+                <div>
+                  <h4 className="font-semibold text-slate-800 mb-3">Parameters</h4>
+                  {generatedConfig.parameters.length > 0 ? (
+                    <div className="overflow-hidden rounded-lg border border-slate-200">
+                      <table className="min-w-full divide-y divide-slate-200">
+                        <thead className="bg-slate-50">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Name</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Type</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Description</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-slate-200">
+                          {generatedConfig.parameters.map((param, index) => (
+                            <tr key={index} className="hover:bg-slate-50">
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <code className="text-sm font-medium text-brand-primary bg-brand-light px-2 py-1 rounded">
+                                  {param.name}
+                                </code>
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <span className="text-sm text-slate-600 bg-slate-100 px-2 py-1 rounded">
+                                  {param.type}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-sm text-slate-600">{param.description}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 bg-slate-50 rounded-lg border-2 border-dashed border-slate-300">
+                      <p className="text-slate-500">No parameters defined for this endpoint</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* SQL Query Suggestion */}
+                <div>
+                  <h4 className="font-semibold text-slate-800 mb-3">Legacy System Integration</h4>
+                  <div className="code-block">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-slate-400 uppercase tracking-wide">SQL Query Suggestion</span>
+                      <button
+                        onClick={() => navigator.clipboard.writeText(generatedConfig.querySuggestion)}
+                        className="text-xs text-slate-400 hover:text-white transition-colors"
+                      >
+                        Copy Query
+                      </button>
+                    </div>
+                    <pre className="text-sm"><code>{generatedConfig.querySuggestion}</code></pre>
+                  </div>
+                </div>
+
+                {/* Suggestions */}
+                {suggestions.length > 0 && (
+                  <div className="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-r-lg">
+                    <h4 className="font-semibold text-amber-800 mb-2">💡 AI Suggestions</h4>
+                    <ul className="space-y-1">
+                      {suggestions.map((suggestion, index) => (
+                        <li key={index} className="text-sm text-amber-700">• {suggestion}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+                  <div className="text-sm text-slate-500">
+                    Ready to deploy this endpoint?
+                  </div>
+                  <Button onClick={handleCreateEndpoint} className="shadow-brand">
+                    Create Endpoint
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* API Editor */}
+          {isEditing && generatedConfig && (
+            <ApiEditor
+              config={generatedConfig}
+              onSave={handleSaveEdit}
+              onCancel={() => setIsEditing(false)}
+            />
+          )}
+
+          {/* API Tester */}
+          {showTester && generatedConfig && (
+            <ApiTester
+              config={generatedConfig}
+              onClose={() => setShowTester(false)}
+            />
+          )}
         </div>
-      )}
+
+        {/* Sidebar */}
+        <div className="space-y-6">
+          {/* Generation History */}
+          {generationHistory.length > 0 && (
+            <Card>
+              <CardHeader>
+                <h3 className="font-semibold text-slate-800">Recent Generations</h3>
+                <p className="text-sm text-slate-500">Your last few API generations</p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {generationHistory.map((item, index) => (
+                  <div
+                    key={index}
+                    className="p-3 bg-slate-50 rounded-lg cursor-pointer hover:bg-slate-100 transition-colors"
+                    onClick={() => handleUseHistoryItem(item)}
+                  >
+                    <div className="flex items-center space-x-2 mb-1">
+                      <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                        item.config.httpMethod === 'GET' ? 'bg-green-100 text-green-700' :
+                        item.config.httpMethod === 'POST' ? 'bg-blue-100 text-blue-700' :
+                        'bg-slate-100 text-slate-700'
+                      }`}>
+                        {item.config.httpMethod}
+                      </span>
+                      <code className="text-xs text-slate-600">{item.config.path}</code>
+                    </div>
+                    <p className="text-xs text-slate-500 truncate">{item.prompt}</p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      {item.timestamp.toLocaleTimeString()}
+                    </p>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Help & Tips */}
+          {!isLoading && !generatedConfig && (
+            <Card>
+              <CardHeader>
+                <h3 className="font-semibold text-slate-800">💡 Pro Tips</h3>
+              </CardHeader>
+              <CardContent className="space-y-4 text-sm">
+                <div className="space-y-2">
+                  <h4 className="font-medium text-slate-700">Be Specific</h4>
+                  <p className="text-slate-600">Include details about parameters, validation rules, and expected responses.</p>
+                </div>
+                <div className="space-y-2">
+                  <h4 className="font-medium text-slate-700">Mention Legacy Systems</h4>
+                  <p className="text-slate-600">Reference your existing database or system for better SQL suggestions.</p>
+                </div>
+                <div className="space-y-2">
+                  <h4 className="font-medium text-slate-700">Think RESTful</h4>
+                  <p className="text-slate-600">Use standard HTTP methods and resource-based URLs for best results.</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* AI Status */}
+          <Card>
+            <CardContent className="text-center space-y-3">
+              <div className="inline-flex items-center space-x-2 text-green-600">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span className="text-sm font-medium">AI Model Online</span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Powered by Google Gemini 2.5 Flash
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 };
