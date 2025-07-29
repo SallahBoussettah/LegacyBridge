@@ -1,0 +1,6 @@
+{
+  "name": "LegacyBridge",
+  "description": "A modular gateway that enables businesses stuck with legacy systems to expose functionality through modern APIs. LegacyBridge auto-generates REST endpoints, normalizes data, and provides a developer portal with analytics and billing features for incremental migration.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
