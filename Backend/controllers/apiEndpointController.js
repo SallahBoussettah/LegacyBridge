@@ -1,8 +1,17 @@
-import { ApiEndpoint, ApiUsageLog } from '../models/index.js';
+import { ApiEndpoint, ApiUsageLog, sequelize } from '../models/index.js';
 
 // Get all API endpoints for the authenticated user
 export const getApiEndpoints = async (req, res) => {
   try {
+    console.log('Getting API endpoints for user:', req.user?.id);
+    
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
     const userId = req.user.id;
     const { status, limit = 50, offset = 0 } = req.query;
 
@@ -11,14 +20,22 @@ export const getApiEndpoints = async (req, res) => {
       whereClause.status = status;
     }
 
+    console.log('Query parameters:', { userId, status, limit, offset });
+    console.log('Where clause:', whereClause);
+
     const endpoints = await ApiEndpoint.findAll({
       where: whereClause,
       limit: parseInt(limit),
       offset: parseInt(offset),
-      order: [['createdAt', 'DESC']],
+      order: [['created_at', 'DESC']],
+      raw: false
     });
 
+    console.log('Found endpoints:', endpoints.length);
+
     const total = await ApiEndpoint.count({ where: whereClause });
+
+    console.log('Total count:', total);
 
     res.json({
       success: true,
@@ -34,9 +51,15 @@ export const getApiEndpoints = async (req, res) => {
     });
   } catch (error) {
     console.error('Get API endpoints error:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
     res.status(500).json({
       success: false,
-      message: 'Failed to retrieve API endpoints'
+      message: 'Failed to retrieve API endpoints',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -44,8 +67,24 @@ export const getApiEndpoints = async (req, res) => {
 // Get a specific API endpoint
 export const getApiEndpoint = async (req, res) => {
   try {
+    console.log('Getting API endpoint:', req.params.id, 'for user:', req.user?.id);
+    
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
     const userId = req.user.id;
     const { id } = req.params;
+
+    if (!id || isNaN(parseInt(id))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid endpoint ID is required'
+      });
+    }
 
     const endpoint = await ApiEndpoint.findByUserAndId(userId, id);
 
@@ -56,15 +95,23 @@ export const getApiEndpoint = async (req, res) => {
       });
     }
 
+    console.log('Found API endpoint:', endpoint.id);
+
     res.json({
       success: true,
       data: { endpoint }
     });
   } catch (error) {
     console.error('Get API endpoint error:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
     res.status(500).json({
       success: false,
-      message: 'Failed to retrieve API endpoint'
+      message: 'Failed to retrieve API endpoint',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -72,8 +119,26 @@ export const getApiEndpoint = async (req, res) => {
 // Create a new API endpoint
 export const createApiEndpoint = async (req, res) => {
   try {
+    console.log('Creating API endpoint for user:', req.user?.id);
+    console.log('Request body:', req.body);
+    
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
     const userId = req.user.id;
     const { name, httpMethod, path, description, parameters, querySuggestion } = req.body;
+
+    // Validate required fields
+    if (!name || !httpMethod || !path) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name, HTTP method, and path are required'
+      });
+    }
 
     // Check if endpoint with same method and path already exists for this user
     const existingEndpoint = await ApiEndpoint.findOne({
@@ -96,10 +161,12 @@ export const createApiEndpoint = async (req, res) => {
       name,
       httpMethod,
       path,
-      description,
+      description: description || '',
       parameters: parameters || [],
-      querySuggestion
+      querySuggestion: querySuggestion || ''
     });
+
+    console.log('API endpoint created successfully:', endpoint.id);
 
     res.status(201).json({
       success: true,
@@ -108,9 +175,28 @@ export const createApiEndpoint = async (req, res) => {
     });
   } catch (error) {
     console.error('Create API endpoint error:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
+    
+    // Handle Sequelize validation errors
+    if (error.name === 'SequelizeValidationError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        errors: error.errors.map(err => ({
+          field: err.path,
+          message: err.message
+        }))
+      });
+    }
+    
     res.status(500).json({
       success: false,
-      message: 'Failed to create API endpoint'
+      message: 'Failed to create API endpoint',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -118,6 +204,15 @@ export const createApiEndpoint = async (req, res) => {
 // Update an API endpoint
 export const updateApiEndpoint = async (req, res) => {
   try {
+    console.log('Updating API endpoint:', req.params.id, 'for user:', req.user?.id);
+    
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
     const userId = req.user.id;
     const { id } = req.params;
     const { name, httpMethod, path, description, parameters, querySuggestion, status } = req.body;
@@ -138,7 +233,7 @@ export const updateApiEndpoint = async (req, res) => {
           userId,
           httpMethod,
           path,
-          id: { [ApiEndpoint.sequelize.Sequelize.Op.ne]: id }
+          id: { [sequelize.Sequelize.Op.ne]: id }
         }
       });
 
@@ -161,6 +256,8 @@ export const updateApiEndpoint = async (req, res) => {
       ...(status && { status })
     });
 
+    console.log('API endpoint updated successfully');
+
     res.json({
       success: true,
       message: 'API endpoint updated successfully',
@@ -168,9 +265,15 @@ export const updateApiEndpoint = async (req, res) => {
     });
   } catch (error) {
     console.error('Update API endpoint error:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
     res.status(500).json({
       success: false,
-      message: 'Failed to update API endpoint'
+      message: 'Failed to update API endpoint',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -178,8 +281,24 @@ export const updateApiEndpoint = async (req, res) => {
 // Delete an API endpoint
 export const deleteApiEndpoint = async (req, res) => {
   try {
+    console.log('Deleting API endpoint:', req.params.id, 'for user:', req.user?.id);
+    
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
     const userId = req.user.id;
     const { id } = req.params;
+
+    if (!id || isNaN(parseInt(id))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid endpoint ID is required'
+      });
+    }
 
     const endpoint = await ApiEndpoint.findByUserAndId(userId, id);
 
@@ -192,15 +311,23 @@ export const deleteApiEndpoint = async (req, res) => {
 
     await endpoint.destroy();
 
+    console.log('API endpoint deleted successfully:', id);
+
     res.json({
       success: true,
       message: 'API endpoint deleted successfully'
     });
   } catch (error) {
     console.error('Delete API endpoint error:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
     res.status(500).json({
       success: false,
-      message: 'Failed to delete API endpoint'
+      message: 'Failed to delete API endpoint',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -208,28 +335,64 @@ export const deleteApiEndpoint = async (req, res) => {
 // Get API endpoint usage statistics
 export const getEndpointStats = async (req, res) => {
   try {
+    console.log('Getting endpoint stats for user:', req.user?.id);
+    
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
     const userId = req.user.id;
     const { timeRange = '24h' } = req.query;
 
-    const stats = await ApiUsageLog.getUsageStats(userId, timeRange);
-    const topEndpoints = await ApiUsageLog.getTopEndpoints(userId, 10);
+    console.log('Stats query parameters:', { userId, timeRange });
+
+    let stats = null;
+    let topEndpoints = [];
+
+    try {
+      // Try to get usage stats, but don't fail if the table doesn't exist or is empty
+      const statsResult = await ApiUsageLog.getUsageStats(userId, timeRange);
+      stats = statsResult && statsResult.length > 0 ? statsResult[0] : null;
+      console.log('Stats result:', stats);
+    } catch (statsError) {
+      console.warn('Failed to get usage stats:', statsError.message);
+      stats = null;
+    }
+
+    try {
+      // Try to get top endpoints, but don't fail if the table doesn't exist or is empty
+      topEndpoints = await ApiUsageLog.getTopEndpoints(userId, 10);
+      console.log('Top endpoints result:', topEndpoints);
+    } catch (topEndpointsError) {
+      console.warn('Failed to get top endpoints:', topEndpointsError.message);
+      topEndpoints = [];
+    }
 
     res.json({
       success: true,
       data: {
-        stats: stats[0] || {
+        stats: stats || {
           totalRequests: 0,
           avgResponseTime: 0,
           errorCount: 0
         },
-        topEndpoints
+        topEndpoints: topEndpoints || []
       }
     });
   } catch (error) {
     console.error('Get endpoint stats error:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
     res.status(500).json({
       success: false,
-      message: 'Failed to retrieve endpoint statistics'
+      message: 'Failed to retrieve endpoint statistics',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
