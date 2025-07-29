@@ -238,7 +238,7 @@ export const ApiEditor: React.FC<ApiEditorProps> = ({ config, onSave, onCancel }
         {/* Preview */}
         <div className="bg-linear-to-r from-slate-50 to-slate-100 p-4 rounded-lg border">
           <h4 className="font-medium text-slate-700 mb-2">Preview</h4>
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3 min-w-0">
             <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-bold ${
               editedConfig.httpMethod === 'GET' ? 'bg-green-100 text-green-800' :
               editedConfig.httpMethod === 'POST' ? 'bg-blue-100 text-blue-800' :
@@ -247,7 +247,7 @@ export const ApiEditor: React.FC<ApiEditorProps> = ({ config, onSave, onCancel }
             }`}>
               {editedConfig.httpMethod}
             </span>
-            <code className="text-lg font-mono text-slate-800 bg-white px-3 py-1 rounded border">
+            <code className="text-sm font-mono text-slate-800 bg-white px-3 py-2 rounded border break-all overflow-hidden flex-1 min-w-0">
               {editedConfig.path || '/api/endpoint'}
             </code>
           </div>
