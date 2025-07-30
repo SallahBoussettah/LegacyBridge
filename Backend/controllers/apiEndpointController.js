@@ -1,4 +1,5 @@
-import { ApiEndpoint, ApiUsageLog, sequelize } from '../models/index.js';
+import { ApiEndpoint, ApiUsageLog, DatabaseConnection, sequelize } from '../models/index.js';
+import queryExecutor from '../services/queryExecutor.js';
 
 // Get all API endpoints for the authenticated user
 export const getApiEndpoints = async (req, res) => {
@@ -28,6 +29,12 @@ export const getApiEndpoints = async (req, res) => {
       limit: parseInt(limit),
       offset: parseInt(offset),
       order: [['created_at', 'DESC']],
+      include: [{
+        model: DatabaseConnection,
+        as: 'databaseConnection',
+        attributes: ['id', 'name', 'type'],
+        required: false
+      }],
       raw: false
     });
 
@@ -130,7 +137,7 @@ export const createApiEndpoint = async (req, res) => {
     }
 
     const userId = req.user.id;
-    const { name, httpMethod, path, description, parameters, querySuggestion } = req.body;
+    const { name, httpMethod, path, description, parameters, querySuggestion, databaseConnectionId, executionMode } = req.body;
 
     // Validate required fields
     if (!name || !httpMethod || !path) {
@@ -156,6 +163,17 @@ export const createApiEndpoint = async (req, res) => {
       });
     }
 
+    // Validate database connection if provided
+    if (databaseConnectionId) {
+      const dbConnection = await DatabaseConnection.findByUserAndId(userId, databaseConnectionId);
+      if (!dbConnection) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid database connection ID'
+        });
+      }
+    }
+
     const endpoint = await ApiEndpoint.create({
       userId,
       name,
@@ -163,7 +181,10 @@ export const createApiEndpoint = async (req, res) => {
       path,
       description: description || '',
       parameters: parameters || [],
-      querySuggestion: querySuggestion || ''
+      querySuggestion: querySuggestion || '',
+      databaseConnectionId: databaseConnectionId || null,
+      executionMode: executionMode || 'mock',
+      validatedQuery: querySuggestion || '' // Initially use the suggestion as validated query
     });
 
     console.log('API endpoint created successfully:', endpoint.id);
@@ -397,14 +418,38 @@ export const getEndpointStats = async (req, res) => {
   }
 };
 
-// Test an API endpoint (mock execution)
+// Test an API endpoint (real or mock execution)
 export const testApiEndpoint = async (req, res) => {
   try {
+    console.log('Testing API endpoint:', req.params.id, 'for user:', req.user?.id);
+    
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
     const userId = req.user.id;
     const { id } = req.params;
     const { parameters = {} } = req.body;
 
-    const endpoint = await ApiEndpoint.findByUserAndId(userId, id);
+    if (!id || isNaN(parseInt(id))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid endpoint ID is required'
+      });
+    }
+
+    // Get endpoint with database connection
+    const endpoint = await ApiEndpoint.findOne({
+      where: { userId, id },
+      include: [{
+        model: DatabaseConnection,
+        as: 'databaseConnection',
+        required: false
+      }]
+    });
 
     if (!endpoint) {
       return res.status(404).json({
@@ -413,31 +458,70 @@ export const testApiEndpoint = async (req, res) => {
       });
     }
 
-    // Mock response generation based on endpoint configuration
-    const mockResponse = generateMockResponse(endpoint, parameters);
+    console.log('Endpoint execution mode:', endpoint.executionMode);
+
+    // Execute query using the query executor
+    const executionResult = await queryExecutor.executeEndpointQuery(endpoint, parameters);
+
+    let statusCode = 200;
+    let responseTime = 0;
+
+    if (executionResult.success) {
+      responseTime = executionResult.data.executionTime || 0;
+      statusCode = 200;
+    } else {
+      statusCode = 400; // Bad request for query errors
+    }
 
     // Log the test execution
-    await ApiUsageLog.create({
-      userId,
-      endpointId: endpoint.id,
-      method: endpoint.httpMethod,
-      path: endpoint.path,
-      statusCode: mockResponse.statusCode,
-      responseTime: mockResponse.responseTime,
-      ipAddress: req.ip,
-      userAgent: req.get('User-Agent')
-    });
+    try {
+      await ApiUsageLog.create({
+        userId,
+        endpointId: endpoint.id,
+        method: endpoint.httpMethod,
+        path: endpoint.path,
+        statusCode,
+        responseTime,
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent')
+      });
+    } catch (logError) {
+      console.warn('Failed to log API usage:', logError.message);
+    }
 
-    res.json({
-      success: true,
-      message: 'API endpoint test completed',
-      data: mockResponse
-    });
+    if (executionResult.success) {
+      res.json({
+        success: true,
+        message: 'API endpoint test completed',
+        data: {
+          ...executionResult.data,
+          endpoint: {
+            id: endpoint.id,
+            name: endpoint.name,
+            method: endpoint.httpMethod,
+            path: endpoint.path,
+            executionMode: endpoint.executionMode
+          }
+        }
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: executionResult.message,
+        error: executionResult.error
+      });
+    }
   } catch (error) {
     console.error('Test API endpoint error:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
     res.status(500).json({
       success: false,
-      message: 'Failed to test API endpoint'
+      message: 'Failed to test API endpoint',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };

@@ -82,7 +82,10 @@ export const apiEndpointSchema = Joi.object({
   ).optional(),
   querySuggestion: Joi.string().max(2000).optional().messages({
     'string.max': 'Query suggestion cannot exceed 2000 characters'
-  })
+  }),
+  databaseConnectionId: Joi.number().integer().optional().allow(null),
+  executionMode: Joi.string().valid('mock', 'database').optional().default('mock'),
+  validatedQuery: Joi.string().max(2000).optional().allow('')
 });
 
 // Database connection validation schema

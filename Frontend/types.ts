@@ -15,6 +15,14 @@ export interface ApiEndpoint {
   parameters: { name: string; type: string; description: string }[];
   querySuggestion: string;
   status: 'active' | 'inactive';
+  databaseConnectionId?: string;
+  executionMode: 'mock' | 'database';
+  validatedQuery?: string;
+  databaseConnection?: {
+    id: string;
+    name: string;
+    type: string;
+  };
 }
 
 export interface BillingTier {

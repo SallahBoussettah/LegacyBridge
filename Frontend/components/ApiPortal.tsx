@@ -54,7 +54,10 @@ export const ApiPortal: React.FC<ApiPortalProps> = () => {
             description: endpoint.description,
             parameters: endpoint.parameters || [],
             querySuggestion: endpoint.querySuggestion,
-            status: endpoint.status
+            status: endpoint.status,
+            executionMode: endpoint.executionMode || 'mock',
+            databaseConnectionId: endpoint.databaseConnectionId,
+            databaseConnection: endpoint.databaseConnection
           }));
           
           console.log('Transformed endpoints:', endpoints);
@@ -137,18 +140,36 @@ export const ApiPortal: React.FC<ApiPortalProps> = () => {
                     </code>
                   </div>
                   <div className="ml-4 flex-shrink-0 flex items-center space-x-4">
-                    <p className="text-sm text-slate-500 hidden md:block flex-shrink-0 max-w-xs truncate">
-                      {endpoint.description}
-                    </p>
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        endpoint.status === "active"
-                          ? "bg-green-100 text-green-800"
-                          : "bg-yellow-100 text-yellow-800"
-                      }`}
-                    >
-                      {endpoint.status}
-                    </span>
+                    <div className="hidden lg:block">
+                      <p className="text-sm text-slate-500 max-w-xs truncate">
+                        {endpoint.description}
+                      </p>
+                      {endpoint.databaseConnection && (
+                        <p className="text-xs text-blue-600 mt-1">
+                          🗄️ {endpoint.databaseConnection.name} ({endpoint.databaseConnection.type})
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          endpoint.executionMode === 'database'
+                            ? "bg-blue-100 text-blue-800"
+                            : "bg-gray-100 text-gray-800"
+                        }`}
+                      >
+                        {endpoint.executionMode === 'database' ? 'Real DB' : 'Mock'}
+                      </span>
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          endpoint.status === "active"
+                            ? "bg-green-100 text-green-800"
+                            : "bg-yellow-100 text-yellow-800"
+                        }`}
+                      >
+                        {endpoint.status}
+                      </span>
+                    </div>
                     <Button
                       variant="secondary"
                       size="sm"

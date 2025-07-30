@@ -47,13 +47,49 @@ const apiEndpointSchema = {
   required: ['httpMethod', 'path', 'description', 'parameters', 'querySuggestion'],
 };
 
-export const generateApiConfig = async (prompt: string): Promise<Omit<ApiEndpoint, 'id' | 'status'>> => {
+interface DatabaseSchema {
+  database: string;
+  type: string;
+  tables: Array<{
+    name: string;
+    rowCount: number;
+    columns: Array<{
+      name: string;
+      type: string;
+      nullable: boolean;
+      isPrimaryKey: boolean;
+      isAutoIncrement: boolean;
+    }>;
+    foreignKeys: Array<{
+      columnName: string;
+      referencedTable: string;
+      referencedColumn: string;
+    }>;
+  }>;
+}
+
+export const generateApiConfig = async (
+  prompt: string, 
+  databaseSchema?: DatabaseSchema
+): Promise<Omit<ApiEndpoint, 'id' | 'status'>> => {
   try {
+    // Build enhanced prompt with database context
+    let enhancedPrompt = `Based on the following request, generate a REST API endpoint configuration. The user is trying to expose functionality from a legacy system. Be thoughtful about RESTful principles and common use cases. Request: "${prompt}"`;
+    
+    let systemInstruction = "You are an expert API designer specializing in modernizing legacy systems. Your task is to generate a JSON configuration for a new REST API endpoint based on a user's natural language request. The output must strictly follow the provided JSON schema. Focus on creating practical, well-structured APIs with appropriate parameters and realistic SQL queries.";
+
+    // Add database schema context if provided
+    if (databaseSchema) {
+      const schemaContext = buildSchemaContext(databaseSchema);
+      enhancedPrompt += `\n\nDATABASE CONTEXT:\n${schemaContext}`;
+      systemInstruction += `\n\nIMPORTANT: You have access to the actual database schema above. Use the real table names, column names, and relationships in your API design. Generate SQL queries that work with the actual database structure. Consider the data types, foreign key relationships, and table structures when designing the API parameters and response format.`;
+    }
+
     const result = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: `Based on the following request, generate a REST API endpoint configuration. The user is trying to expose functionality from a legacy system. Be thoughtful about RESTful principles and common use cases. Request: "${prompt}"`,
+      contents: enhancedPrompt,
       config: {
-        systemInstruction: "You are an expert API designer specializing in modernizing legacy systems. Your task is to generate a JSON configuration for a new REST API endpoint based on a user's natural language request. The output must strictly follow the provided JSON schema. Focus on creating practical, well-structured APIs with appropriate parameters and realistic SQL queries.",
+        systemInstruction,
         responseMimeType: "application/json",
         responseSchema: apiEndpointSchema,
       },
@@ -74,6 +110,35 @@ export const generateApiConfig = async (prompt: string): Promise<Omit<ApiEndpoin
     throw new Error(errorMessage);
   }
 };
+
+// Helper function to build database schema context for AI
+function buildSchemaContext(schema: DatabaseSchema): string {
+  let context = `Database: ${schema.database} (${schema.type})\n`;
+  context += `Tables: ${schema.tables.length}\n\n`;
+  
+  schema.tables.forEach(table => {
+    context += `TABLE: ${table.name} (${table.rowCount?.toLocaleString() || 'Unknown'} rows)\n`;
+    context += `Columns:\n`;
+    
+    table.columns.forEach(column => {
+      const nullable = column.nullable ? 'NULL' : 'NOT NULL';
+      const pk = column.isPrimaryKey ? ' [PRIMARY KEY]' : '';
+      const ai = column.isAutoIncrement ? ' [AUTO_INCREMENT]' : '';
+      context += `  - ${column.name}: ${column.type} ${nullable}${pk}${ai}\n`;
+    });
+    
+    if (table.foreignKeys && table.foreignKeys.length > 0) {
+      context += `Foreign Keys:\n`;
+      table.foreignKeys.forEach(fk => {
+        context += `  - ${fk.columnName} → ${fk.referencedTable}.${fk.referencedColumn}\n`;
+      });
+    }
+    
+    context += `\n`;
+  });
+  
+  return context;
+}
 
 export const testApiEndpoint = async (config: Omit<ApiEndpoint, 'id' | 'status'>, parameters: Record<string, any>) => {
   // This is a mock function for testing API endpoints

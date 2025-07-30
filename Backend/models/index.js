@@ -61,6 +61,18 @@ DatabaseConnection.belongsTo(User, {
   as: 'user',
 });
 
+// ApiEndpoint and DatabaseConnection relationship
+ApiEndpoint.belongsTo(DatabaseConnection, {
+  foreignKey: 'databaseConnectionId',
+  as: 'databaseConnection',
+});
+
+DatabaseConnection.hasMany(ApiEndpoint, {
+  foreignKey: 'databaseConnectionId',
+  as: 'apiEndpoints',
+  onDelete: 'SET NULL',
+});
+
 // Sync database (create tables if they don't exist)
 const syncDatabase = async (force = false) => {
   try {

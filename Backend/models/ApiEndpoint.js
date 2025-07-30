@@ -71,6 +71,34 @@ const ApiEndpoint = sequelize.define('ApiEndpoint', {
     allowNull: true,
     field: 'query_suggestion',
   },
+  databaseConnectionId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    field: 'database_connection_id',
+    references: {
+      model: 'database_connections',
+      key: 'id',
+    },
+    onDelete: 'SET NULL',
+  },
+  validatedQuery: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    field: 'validated_query',
+    comment: 'The final SQL query that will be executed against the database',
+  },
+  queryParameters: {
+    type: DataTypes.JSONB,
+    defaultValue: {},
+    field: 'query_parameters',
+    comment: 'Parameter mapping for SQL query execution',
+  },
+  executionMode: {
+    type: DataTypes.ENUM('mock', 'database'),
+    defaultValue: 'mock',
+    field: 'execution_mode',
+    comment: 'Whether to use mock data or execute against real database',
+  },
   status: {
     type: DataTypes.ENUM('active', 'inactive', 'deprecated'),
     defaultValue: 'active',
@@ -89,6 +117,12 @@ const ApiEndpoint = sequelize.define('ApiEndpoint', {
     },
     {
       fields: ['http_method', 'path'],
+    },
+    {
+      fields: ['database_connection_id'],
+    },
+    {
+      fields: ['execution_mode'],
     },
   ],
 });
@@ -117,6 +151,34 @@ ApiEndpoint.findByUserAndId = function(userId, id) {
       userId,
       id,
     },
+  });
+};
+
+ApiEndpoint.findWithDatabaseConnection = function(userId, id) {
+  return this.findOne({
+    where: { 
+      userId,
+      id,
+    },
+    include: [{
+      association: 'databaseConnection',
+      required: false
+    }]
+  });
+};
+
+ApiEndpoint.findDatabaseEndpoints = function(userId) {
+  return this.findAll({
+    where: { 
+      userId,
+      executionMode: 'database',
+      status: 'active',
+    },
+    include: [{
+      association: 'databaseConnection',
+      required: true
+    }],
+    order: [['created_at', 'DESC']],
   });
 };
 
